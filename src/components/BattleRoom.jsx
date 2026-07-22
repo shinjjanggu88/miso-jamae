@@ -62,9 +62,19 @@ export default function BattleRoom({ socket, roomId, username, onLeave }) {
       setSubmitted(true)
     })
 
-    socket.on('player-answered', ({ answeredCount, totalPlayers: tp }) => {
+    socket.on('all-answered', ({ answer, scores: s }) => {
+      setScores(s)
+      setSubmitted(true)
+      setLastResult(prev => {
+        if (prev && !prev.isTimeout) return prev
+        return { answer, isTimeout: false, isCorrect: false }
+      })
+    })
+
+    socket.on('player-answered', ({ answeredCount, totalPlayers: tp, scores: s }) => {
       setAnsweredPlayers(answeredCount)
       setTotalPlayers(tp)
+      if (s) setScores(s)
     })
 
     socket.on('game-over', ({ results, match, ranked }) => {
@@ -80,6 +90,7 @@ export default function BattleRoom({ socket, roomId, username, onLeave }) {
       socket.off('question')
       socket.off('timer-tick')
       socket.off('time-up')
+      socket.off('all-answered')
       socket.off('player-answered')
       socket.off('game-over')
     }

@@ -575,6 +575,7 @@ io.on('connection', (socket) => {
       username,
       answeredCount: room.submittedCount,
       totalPlayers: room.players.size,
+      scores: Object.fromEntries(room.scores),
     })
 
     if (cb) cb({ isCorrect })
@@ -584,7 +585,7 @@ io.on('connection', (socket) => {
       clearInterval(room.timer)
       room.timer = null
       const ans = q.answer
-      io.to(roomId).emit('time-up', {
+      io.to(roomId).emit('all-answered', {
         answer: ans,
         scores: Object.fromEntries(room.scores),
       })

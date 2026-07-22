@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 
 function getUsers() {
   try {
@@ -12,24 +12,66 @@ const MEDALS = [
   { emoji: '🥉', label: '동메달', color: '#cd7f32', bg: 'rgba(205, 127, 50, 0.1)', border: 'rgba(205, 127, 50, 0.3)' },
 ]
 
-export default function RankingPage({ jokeRankings, currentUser }) {
+const TIERS = [
+  { id: 'bronze', name: '브론즈', icon: '🥉', color: '#cd7f32' },
+  { id: 'silver', name: '실버', icon: '🥈', color: '#c0c0c0' },
+  { id: 'gold', name: '골드', icon: '🥇', color: '#ffd700' },
+  { id: 'platinum', name: '플래티넘', icon: '💎', color: '#00d4ff' },
+  { id: 'diamond', name: '다이아몬드', icon: '👑', color: '#b9f2ff' },
+  { id: 'challenger', name: '챌린저', icon: '🏆', color: '#ff6b6b' },
+]
+
+function getTierInfo(tierId) {
+  return TIERS.find(t => t.id === tierId) || TIERS[0]
+}
+
+export default function RankingPage({ jokeRankings, currentUser, socket }) {
+  const [serverStats, setServerStats] = useState({})
+
+  useEffect(() => {
+    if (!socket) return
+
+    socket.emit('get-leaderboard', (lb) => {
+      const statsMap = {}
+      lb.forEach(s => { statsMap[s.username] = s })
+      setServerStats(statsMap)
+    })
+
+    socket.on('leaderboard-update', (lb) => {
+      const statsMap = {}
+      lb.forEach(s => { statsMap[s.username] = s })
+      setServerStats(statsMap)
+    })
+
+    return () => { socket.off('leaderboard-update') }
+  }, [socket])
+
   const users = useMemo(() => {
     const raw = getUsers()
     return Object.entries(raw)
-      .map(([name, data]) => ({
-        username: name,
-        points: data.points || 0,
-        correctCount: data.correctCount || 0,
-      }))
-      .sort((a, b) => b.points - a.points || b.correctCount - a.correctCount)
-  }, [])
+      .map(([name, data]) => {
+        const stats = serverStats[name] || {}
+        return {
+          username: name,
+          points: data.points || 0,
+          correctCount: data.correctCount || 0,
+          mmr: stats.mmr || 1000,
+          tier: getTierInfo(stats.tier || 'bronze'),
+          wins: stats.wins || 0,
+          losses: stats.losses || 0,
+          winRate: stats.totalGames > 0 ? Math.round((stats.wins / stats.totalGames) * 100) : 0,
+          totalGames: stats.totalGames || 0,
+        }
+      })
+      .sort((a, b) => b.mmr - a.mmr || b.points - a.points)
+  }, [serverStats])
 
   const jokeTop = useMemo(() => {
     return jokeRankings.slice(0, 20)
   }, [jokeRankings])
 
   const hasJokeRankings = jokeTop.length > 0 && jokeTop.some(j => j.likes > 0)
-  const hasUserRankings = users.length > 0 && users.some(u => u.points > 0)
+  const hasUserRankings = users.length > 0
 
   return (
     <div className="ranking-container">
@@ -87,8 +129,8 @@ export default function RankingPage({ jokeRankings, currentUser }) {
         {!hasUserRankings ? (
           <div className="ranking-empty">
             <span className="ranking-empty-icon">👤</span>
-            <p>아직 포인트가 있는 유저가 없습니다.</p>
-            <p className="ranking-empty-sub">로그인하고 퀴즈를 풀어 포인트를 모아보세요!</p>
+            <p>아직 유저가 없습니다.</p>
+            <p className="ranking-empty-sub">로그인하고 아재개그를 풀어보세요!</p>
           </div>
         ) : (
           <div className="ranking-list">
@@ -113,17 +155,25 @@ export default function RankingPage({ jokeRankings, currentUser }) {
                   </div>
                   <div className="ranking-content">
                     <p className="ranking-username">
+                      <span className="ranking-tier-icon" style={{ color: user.tier.color }}>{user.tier.icon}</span>
                       {user.username}
                       {isMe && <span className="me-badge">나</span>}
                     </p>
                     <p className="ranking-stats">
-                      정답 <strong>{user.correctCount}</strong>개
+                      {user.totalGames > 0 ? (
+                        <>
+                          <strong>{user.wins}승</strong> <strong>{user.losses}패</strong>
+                          <span className="ranking-winrate"> ({user.winRate}%)</span>
+                        </>
+                      ) : (
+                        <>
+                          정답 <strong>{user.correctCount}</strong>개
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="ranking-score">
-                    <span className="ranking-points-icon">⭐</span>
-                    <span className="ranking-score-value">{user.points.toLocaleString()}</span>
-                    <span className="ranking-points-label">P</span>
+                    <span className="ranking-mmr">{user.mmr} MMR</span>
                   </div>
                 </div>
               )

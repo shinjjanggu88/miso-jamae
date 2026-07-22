@@ -1,10 +1,28 @@
 import { useState, useEffect, useCallback } from 'react'
+import { io } from 'socket.io-client'
 import JokeCard from './components/JokeCard'
 import JokeList from './components/JokeList'
 import AuthModal from './components/AuthModal'
 import RankingPage from './components/RankingPage'
+import BattlePage from './components/BattlePage'
+import RankedMatchPage from './components/RankedMatchPage'
+import MatchHistory from './components/MatchHistory'
 
 const API_URL = 'https://raw.githubusercontent.com/Team-WAVE-x/Stop-uncle/master/src/ajegag.json'
+const SOCKET_URL = window.location.origin
+
+const TIERS = [
+  { id: 'bronze', name: '브론즈', icon: '🥉', color: '#cd7f32' },
+  { id: 'silver', name: '실버', icon: '🥈', color: '#c0c0c0' },
+  { id: 'gold', name: '골드', icon: '🥇', color: '#ffd700' },
+  { id: 'platinum', name: '플래티넘', icon: '💎', color: '#00d4ff' },
+  { id: 'diamond', name: '다이아몬드', icon: '👑', color: '#b9f2ff' },
+  { id: 'challenger', name: '챌린저', icon: '🏆', color: '#ff6b6b' },
+]
+
+function getTierInfo(tierId) {
+  return TIERS.find(t => t.id === tierId) || TIERS[0]
+}
 
 function getSession() {
   try {
@@ -56,6 +74,39 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('joke-like-counts') || '{}') } catch { return {} }
   })
   const [userLikes, setUserLikes] = useState(() => ({}))
+
+  const [socket, setSocket] = useState(null)
+  const [userTier, setUserTier] = useState(null)
+  const [userMmr, setUserMmr] = useState(0)
+
+  useEffect(() => {
+    const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] })
+    s.on('connect', () => console.log('🔗 서버 연결됨'))
+    s.on('disconnect', () => console.log('🔌 서버 연결 해제'))
+
+    s.on('stats-update', (allStats) => {
+      if (user && allStats[user]) {
+        const stats = allStats[user]
+        setUserTier(getTierInfo(stats.tier))
+        setUserMmr(stats.mmr)
+      }
+    })
+
+    setSocket(s)
+    return () => { s.disconnect() }
+  }, [])
+
+  useEffect(() => {
+    if (user && socket) {
+      socket.emit('get-user-stats', { username: user }, ({ stats, tier }) => {
+        setUserTier(tier)
+        setUserMmr(stats?.mmr || 0)
+      })
+    } else {
+      setUserTier(null)
+      setUserMmr(0)
+    }
+  }, [user, socket])
 
   useEffect(() => {
     if (user) {
@@ -247,6 +298,8 @@ export default function App() {
     )
   }
 
+  const tier = userTier || getTierInfo('bronze')
+
   return (
     <div className="app">
       <header className="app-header">
@@ -259,6 +312,10 @@ export default function App() {
             <div className="user-area">
               {user ? (
                 <div className="user-info">
+                  <span className="user-tier-badge" style={{ borderColor: tier.color }}>
+                    <span className="user-tier-icon">{tier.icon}</span>
+                    <span className="user-tier-text" style={{ color: tier.color }}>{tier.name}</span>
+                  </span>
                   <span className="user-points">⭐ {points.toLocaleString()}P</span>
                   <span className="user-name">👤 {user}</span>
                   <button className="btn-logout" onClick={logout}>로그아웃</button>
@@ -284,10 +341,22 @@ export default function App() {
               📋 전체 목록
             </button>
             <button
-              className={`nav-tab ${view === 'ranking' ? 'active' : ''}`}
-              onClick={() => setView('ranking')}
+              className={`nav-tab ${view === 'ranked' ? 'active' : ''}`}
+              onClick={() => setView('ranked')}
             >
-              🏆 순위
+              🏆 랭크
+            </button>
+            <button
+              className={`nav-tab ${view === 'battle' ? 'active' : ''}`}
+              onClick={() => setView('battle')}
+            >
+              ⚔️ 경쟁
+            </button>
+            <button
+              className={`nav-tab ${view === 'history' ? 'active' : ''}`}
+              onClick={() => setView('history')}
+            >
+              📋 전적
             </button>
           </nav>
           <div className="stats-bar">
@@ -310,6 +379,11 @@ export default function App() {
             {streak > 1 && (
               <span className="stat streak-badge">
                 🔥 {streak}연속
+              </span>
+            )}
+            {user && userMmr > 0 && (
+              <span className="stat stat-mmr-badge">
+                {tier.icon} {userMmr} MMR
               </span>
             )}
           </div>
@@ -342,6 +416,26 @@ export default function App() {
             onShare={shareJoke}
             user={user}
             onLoginPrompt={() => setShowAuth(true)}
+          />
+        )}
+        {view === 'ranked' && (
+          <RankedMatchPage
+            socket={socket}
+            user={user}
+            onLoginPrompt={() => setShowAuth(true)}
+          />
+        )}
+        {view === 'battle' && (
+          <BattlePage
+            socket={socket}
+            user={user}
+            onLoginPrompt={() => setShowAuth(true)}
+          />
+        )}
+        {view === 'history' && (
+          <MatchHistory
+            socket={socket}
+            user={user}
           />
         )}
         {view === 'ranking' && (
